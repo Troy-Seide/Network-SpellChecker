@@ -30,43 +30,54 @@ using namespace std;
 /*
  * 
  */
-pthread_cond_t cFull, lFull, cEmpty, lEmpty;
-char cbuffer1[250], lbuffer[1024];
+pthread_cond_t cnotFull, lnotFull, cnotEmpty, lnotEmpty;
+int cbuffer[250];
+char lbuffer[2][512];
 pthread_t worker_threads[WORKERSIZE]; 
-//pthread_create(&name, NULL, methodName, NULL);
-//thread_pool pool(8);
 pthread_t log_thread;
 pthread_mutex_t cmutex;
 pthread_mutex_t lmutex;
-string dictionwords[200000];
+const int size=20000;
+int csize=0;
+int lsize=0;
+string dictionwords[size];
 void *wordChecker(void* t);
 void *logfile(void* i);
+int chead=0,ctail=0, lhead=0, ltail=0; 
 int main(int argc, char** argv) {
-    pthread_cond_init(&cFull, NULL);
-    pthread_cond_init(&lFull, NULL);
-    pthread_cond_init(&cEmpty, NULL);
-    pthread_cond_init(&lEmpty, NULL);
+    pthread_cond_init(&cnotFull, NULL);
+    pthread_cond_init(&lnotFull, NULL);
+    pthread_cond_init(&cnotEmpty, NULL);
+    pthread_cond_init(&lnotEmpty, NULL);
     int length=0;
     ifstream dictwords;
     string words;
     dictwords.open("dictionary.txt");
- 
-    int i=0;
-    cout<<"before while";
+    
+    if(dictwords.is_open()){
+        for(int i=0; i<size; i++){
+            dictwords>>dictionwords[i];
+            cout<<dictionwords[i];
+            cout<<" ";
+        }
+    }
+    /*
+    //cout<<"before while";
     while(!dictwords.eof()){
         getline(dictwords, words);
         //cout<<words;
         dictionwords[i]=words;
         //cout<<words<<endl;
-        cout<<words[1];
         i++;
+        cout<<dictionwords[i];
+        cout<<" "; 
     }
-    
+     */
+    //cout<<words[1];
     for(int i=0; i<WORKERSIZE; i++){
         pthread_create(&worker_threads[i], NULL, wordChecker, NULL);
     }
-    pthread_create(&log_thread, NULL, logfile, NULL);
-    //(Shakeel's Work from lines 31 to 57)
+    pthread_create(&log_thread, NULL, logfile, NULL);    
     int portNumber=8888;
     int socket_desc, new_socket, c;
     struct sockaddr_in server, client;
@@ -93,15 +104,55 @@ int main(int argc, char** argv) {
            return 1;
        }
         puts("Connection accepted.");
+        pthread_mutex_lock(&cmutex);
+        if(csize==250){
+            pthread_cond_wait(&cnotFull, &cmutex);
+  
+        }
+        cbuffer[chead]=new_socket;
+        csize++;
+        if(chead<249){
+            chead++;
+            
+        }
+        else{
+            chead=0;
+        }
+        pthread_mutex_unlock(&cmutex);
+        pthread_cond_signal(&cnotEmpty);
     }
        return 0;
 }
 
 void *wordChecker(void* t){
-    //code for processing client
-    cout<<"hello";
+    pthread_mutex_lock(&cmutex);
+    if(csize==0){
+        pthread_cond_wait(&cnotEmpty, &cmutex);
+
+    }
+    
+    int socket=cbuffer[ctail];
+    csize--;
+    if(ctail<249){
+        ctail++;
+    }
+    else{
+        chead=0;
+    }
+    pthread_mutex_unlock(&cmutex);
+    pthread_cond_signal(&cnotFull);
+    while(1){
+        char *words; //malloc on words
+        int Maxwordsize=20;
+        while(recv(socket, words, Maxwordsize, 0)){
+            //comparison to check between words in the dictionary file and words
+            //free on words at end of inner while loop
+            //putting into the logfile;
+        }
+    }
+    
+    
 }
 void *logfile(void* i){
-    
-    cout<<"hello";
+    //taking out of logfile
 }
