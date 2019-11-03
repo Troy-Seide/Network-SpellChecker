@@ -10,9 +10,11 @@
  *
  * Created on October 22, 2019, 2:29 PM
  */
+//command line arguments
+//readme 
+// printing to logfile word not found
+//run on multiple servers
 
-#include <cstdlib>
-#include <iostream>
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
@@ -20,66 +22,54 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <fstream>
 #include <pthread.h>
-#include <mutex>
-#include <condition_variable>
+#include <stdbool.h>
+#include <stdio.h>
 #define WORKERSIZE 6
-using namespace std;
 
 /*
  * 
  */
 pthread_cond_t cnotFull, lnotFull, cnotEmpty, lnotEmpty;
 int cbuffer[250];
-char lbuffer[2][512];
+char *lbuffer[512];
 pthread_t worker_threads[WORKERSIZE]; 
 pthread_t log_thread;
 pthread_mutex_t cmutex;
 pthread_mutex_t lmutex;
-const int size=20000;
+const int size=200000;
 int csize=0;
 int lsize=0;
-string dictionwords[size];
+char *dictionwords[200000];
 void *wordChecker(void* t);
-void *logfile(void* i);
-int chead=0,ctail=0, lhead=0, ltail=0; 
+void *logfile(void* logWords);
+int chead=0,ctail=0, lhead=0, ltail=0;
+int new_socket;
 int main(int argc, char** argv) {
     pthread_cond_init(&cnotFull, NULL);
     pthread_cond_init(&lnotFull, NULL);
     pthread_cond_init(&cnotEmpty, NULL);
     pthread_cond_init(&lnotEmpty, NULL);
     int length=0;
-    ifstream dictwords;
-    string words;
-    dictwords.open("dictionary.txt");
+    FILE *dictwords;
+    char *words;
+    dictwords=fopen("dictionary.txt","r");
     
-    if(dictwords.is_open()){
+    if(dictwords!=EOF){
         for(int i=0; i<size; i++){
-            dictwords>>dictionwords[i];
-            cout<<dictionwords[i];
-            cout<<" ";
+	
+	dictionwords[i]=calloc(20, 1);
+            fgets(dictionwords[i], 20, dictwords);
+	//printf("%s", dictionwords[i]);
         }
     }
-    /*
-    //cout<<"before while";
-    while(!dictwords.eof()){
-        getline(dictwords, words);
-        //cout<<words;
-        dictionwords[i]=words;
-        //cout<<words<<endl;
-        i++;
-        cout<<dictionwords[i];
-        cout<<" "; 
-    }
-     */
-    //cout<<words[1];
+  
     for(int i=0; i<WORKERSIZE; i++){
         pthread_create(&worker_threads[i], NULL, wordChecker, NULL);
     }
     pthread_create(&log_thread, NULL, logfile, NULL);    
     int portNumber=8888;
-    int socket_desc, new_socket, c;
+    int socket_desc, c;
     struct sockaddr_in server, client;
     char *message;
     socket_desc=socket(AF_INET, SOCK_STREAM, 0);
@@ -130,7 +120,6 @@ void *wordChecker(void* t){
         pthread_cond_wait(&cnotEmpty, &cmutex);
 
     }
-    
     int socket=cbuffer[ctail];
     csize--;
     if(ctail<249){
@@ -142,17 +131,84 @@ void *wordChecker(void* t){
     pthread_mutex_unlock(&cmutex);
     pthread_cond_signal(&cnotFull);
     while(1){
-        char *words; //malloc on words
+//puts("new");
+
+        //malloc on words
+        
         int Maxwordsize=20;
+char *message=calloc(Maxwordsize+10, 1);
+        char *words=calloc(Maxwordsize, 1);
         while(recv(socket, words, Maxwordsize, 0)){
+//puts("other");
+            strcpy(message, words);
+            bool found=false;
             //comparison to check between words in the dictionary file and words
+//printf("%d", strlen("hello"));
+//printf("%d", strlen(words));
+            for(int i=0; i<size; i++){
+
+                //assuming you` put into the logfile
+                if(strncmp(dictionwords[i],words,strlen(words)-2)==0){
+                    strcat(message, " found\n");
+                    found=true;
+//printf("correct");
+                    break;
+                    
+                }
+		
+                
+            }
+            if(found==false){
+                write(socket, "The word was not found\n", strlen("The word was not found\n"));
+               	strcat(message, " not found\n");
+                   
+            }
+            else{
+                write(socket, "The word was found\n", strlen("The word was found\n"));
+            }
             //free on words at end of inner while loop
             //putting into the logfile;
+                pthread_mutex_lock(&lmutex);
+                if(lsize==250){
+                    pthread_cond_wait(&lnotFull, &lmutex);
+                }
+                lbuffer[lhead]=message;
+                lsize++;
+                if(lhead<249){
+                    lhead++;
+                }
+                else{
+                    lhead=0;
+                }
+                pthread_mutex_unlock(&lmutex);
+                pthread_cond_signal(&lnotEmpty);
+                free(words);
+	char* words=calloc(20, 1);
+
+            }
+close(socket);
         }
     }
     
-    
-}
-void *logfile(void* i){
+void *logfile(void* logWords){
     //taking out of logfile
+    pthread_mutex_lock(&lmutex);
+    if(lsize==0){
+        pthread_cond_wait(&lnotEmpty, &lmutex);
+
+    } 
+    char *phrase=lbuffer[ltail];
+    FILE* logfile;
+    logfile=fopen("logfile.txt","a+");
+    fprintf(logfile, "%s",  phrase);
+    fclose(logfile);
+    lsize--;
+    if(ltail<249){
+        ltail++;
+    }
+    else{
+        lhead=0;
+    }
+    pthread_mutex_unlock(&lmutex);
+    pthread_cond_signal(&lnotFull);
 }
